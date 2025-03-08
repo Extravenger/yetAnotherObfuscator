@@ -1,132 +1,149 @@
-﻿using dnlib.DotNet;
+using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
+using System.Linq; // For ToList()
+using System.Reflection.Emit; // Only if you're using reflection.emit for dynamic type generation
+using System.Reflection;
 
 namespace yetAnotherObfuscator
 {
     class ManipulateStrings
     {
-        static string randomEncryptionKey = GetRandomString(new Random().Next(40, 60));
-
-        public static string GetRandomString(int size)
-        {
-            char[] chars =
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890".ToCharArray();
-            byte[] data = new byte[size];
-            using (RNGCryptoServiceProvider crypto = new RNGCryptoServiceProvider())
-            {
-                crypto.GetBytes(data);
-            }
-            StringBuilder result = new StringBuilder(size);
-            foreach (byte b in data)
-            {
-                result.Append(chars[b % (chars.Length)]);
-            }
-            return result.ToString();
-        }
-
+        static string randomEncryptionKey = GetRandomString(new Random().Next(10, 20));  // Random key length
 
         public static void PerformStringEncryption(ModuleDef moduleDef)
         {
-            ModuleDef typeModule = ModuleDefMD.Load(typeof(ManipulateStrings).Module);
+            string xorKey = GetRandomString(16);  // Generate a random key for encryption
+
             Console.WriteLine("[+] Injecting the decryption method");
 
-            foreach (TypeDef type in typeModule.Types)
+            foreach (TypeDef type in moduleDef.Types)
             {
                 foreach (MethodDef method in type.Methods)
                 {
                     if (method.Name == "DecryptString")
                     {
+                        method.Name = EncryptString("DecryptString", xorKey);  // Encrypt method name
                         method.DeclaringType = null;
-                        method.Name = "0xb11a1";
-                        method.Parameters[0].Name = "\u0011";
 
+                        // Add the method with encrypted name to the module
                         moduleDef.GlobalType.Methods.Add(method);
 
-                        foreach (Instruction i in method.Body.Instructions)
+                        Console.WriteLine("[+] Encrypting all strings with encryption key: " + xorKey);
+
+                        foreach (TypeDef typedef in moduleDef.GetTypes().ToList()) // Use ToList() after adding the using directive
                         {
-                            if (i.ToString().Contains("DefaultKey"))
+                            if (!typedef.HasMethods) continue;
+
+                            foreach (MethodDef typeMethod in typedef.Methods)
                             {
-                                i.Operand = randomEncryptionKey;
-                            }
-                        }
+                                if (typeMethod.Body == null) continue;
 
-                        Console.WriteLine("[+] Encrypting all strings with encryption key: " + randomEncryptionKey);
-
-                        foreach (dnlib.DotNet.TypeDef typedef in moduleDef.GetTypes().ToList())
-                        {
-                            if (!typedef.HasMethods)
-                                continue;
-
-                            foreach (dnlib.DotNet.MethodDef typeMethod in typedef.Methods)
-                            {
-                                if (typeMethod.Body == null)
-                                    continue;
-                                if (typeMethod.Name != method.Name)
+                                // Encrypt string literals and add call to decryption method
+                                foreach (Instruction instr in typeMethod.Body.Instructions.ToList())
                                 {
-                                    foreach (Instruction instr in typeMethod.Body.Instructions.ToList())
+                                    if (instr.OpCode == dnlib.DotNet.Emit.OpCodes.Ldstr)  // Use dnlib.OpCodes explicitly
                                     {
-                                        if (instr.OpCode == OpCodes.Ldstr)
-                                        {
-                                            int instrIndex = typeMethod.Body.Instructions.IndexOf(instr);
-
-                                            typeMethod.Body.Instructions[instrIndex].Operand = EncryptString(typeMethod.Body.Instructions[instrIndex].Operand.ToString(), randomEncryptionKey);
-                                            typeMethod.Body.Instructions.Insert(instrIndex + 1, new Instruction(OpCodes.Call, method));
-                                        }
+                                        int instrIndex = typeMethod.Body.Instructions.IndexOf(instr);
+                                        // Encrypt string literal
+                                        typeMethod.Body.Instructions[instrIndex].Operand = EncryptString(instr.Operand.ToString(), xorKey);
+                                        typeMethod.Body.Instructions.Insert(instrIndex + 1, new Instruction(dnlib.DotNet.Emit.OpCodes.Call, method));  // Use dnlib.OpCodes explicitly
                                     }
-                                    typeMethod.Body.UpdateInstructionOffsets();
-                                    typeMethod.Body.OptimizeBranches();
-                                    typeMethod.Body.SimplifyBranches();
                                 }
+
+                                typeMethod.Body.UpdateInstructionOffsets();
+                                typeMethod.Body.OptimizeBranches();
+                                typeMethod.Body.SimplifyBranches();
                             }
                         }
-
                         break;
                     }
                 }
             }
         }
 
+        // Encrypt strings using XOR with the key
         public static string EncryptString(string plaintext, string key)
         {
-            byte[] encryptedArray = UTF8Encoding.UTF8.GetBytes(plaintext);
-            byte[] encryptionKey = new MD5CryptoServiceProvider().ComputeHash(UTF8Encoding.UTF8.GetBytes(key));
-
-            var tripleDES = new TripleDESCryptoServiceProvider();
-
-            tripleDES.Key = encryptionKey;
-            tripleDES.Mode = CipherMode.ECB;
-            tripleDES.Padding = PaddingMode.PKCS7;
-
-            var cryptoTransform = tripleDES.CreateEncryptor();
-
-            byte[] result = cryptoTransform.TransformFinalBlock(encryptedArray, 0, encryptedArray.Length);
-            tripleDES.Clear();
-
-            return Convert.ToBase64String(result, 0, result.Length);
+            StringBuilder encrypted = new StringBuilder();  // <-- StringBuilder is now accessible
+            for (int i = 0; i < plaintext.Length; i++)
+            {
+                encrypted.Append((char)(plaintext[i] ^ key[i % key.Length]));  // XOR encryption
+            }
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(encrypted.ToString()));  // Encode to Base64
         }
+
+        // Generate a random string for XOR key
+        public static string GetRandomString(int length)
+        {
+            Random random = new Random();
+            const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            StringBuilder result = new StringBuilder(length);
+
+            for (int i = 0; i < length; i++)
+            {
+                result.Append(chars[random.Next(chars.Length)]);
+            }
+
+            return result.ToString();
+        }
+
+        // Add junk code to confuse reverse engineers
+        public static void AddJunkCode()
+        {
+            int a = 0;
+            int b = 0;
+            for (int i = 0; i < 1000; i++)
+            {
+                a += i;  // Perform some unnecessary computation
+                b += i;  // Perform more unnecessary computation
+            }
+        }
+
+        // Create dynamic types at runtime using Reflection.Emit
+        public static void CreateDynamicType()
+        {
+            AssemblyBuilder assemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(
+                new AssemblyName("DynamicAssembly"), AssemblyBuilderAccess.Run);
+            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
+            TypeBuilder typeBuilder = moduleBuilder.DefineType("DynamicClass", System.Reflection.TypeAttributes.Public);  // Use System.Reflection.TypeAttributes explicitly
+
+            // Define a method
+            MethodBuilder methodBuilder = typeBuilder.DefineMethod("DynamicMethod", System.Reflection.MethodAttributes.Public, typeof(void), null);  // Use MethodAttributes from System.Reflection explicitly
+            ILGenerator ilGenerator = methodBuilder.GetILGenerator();
+            ilGenerator.Emit(System.Reflection.Emit.OpCodes.Ret);  // Use System.Reflection.Emit.OpCodes explicitly
+
+            // Create the type
+            Type dynamicType = typeBuilder.CreateType();
+
+            // Invoke the method
+            object dynamicObject = Activator.CreateInstance(dynamicType);
+            dynamicType.GetMethod("DynamicMethod").Invoke(dynamicObject, null);
+        }
+
+        // Obfuscate method parameters
+        public static void ObfuscateMethodParameters(string param)
+        {
+            string encodedParam = EncryptString(param, GetRandomString(16));  // Encrypt the parameter
+            Console.WriteLine("Obfuscated parameter: " + encodedParam);
+            // Decrypt the parameter when needed
+            string decryptedParam = DecryptString(encodedParam);
+            Console.WriteLine("Decrypted parameter: " + decryptedParam);
+        }
+
+        // Decrypt strings
         public static string DecryptString(string ciphertext)
         {
             byte[] decodedData = Convert.FromBase64String(ciphertext);
-            byte[] encryptionKey = new MD5CryptoServiceProvider().ComputeHash(UTF8Encoding.UTF8.GetBytes("DefaultKey"));
-
-            var tripleDES = new TripleDESCryptoServiceProvider();
-
-            tripleDES.Key = encryptionKey;
-            tripleDES.Mode = CipherMode.ECB;
-            tripleDES.Padding = PaddingMode.PKCS7;
-
-            var cryptoTransform = tripleDES.CreateDecryptor();
-
-            byte[] result = cryptoTransform.TransformFinalBlock(decodedData, 0, decodedData.Length);
-            tripleDES.Clear();
-
-            return Encoding.UTF8.GetString(result);
+            string encryptedText = Encoding.UTF8.GetString(decodedData);
+            StringBuilder decrypted = new StringBuilder();
+            string key = GetRandomString(16);  // Use dynamic key for decryption
+            for (int i = 0; i < encryptedText.Length; i++)
+            {
+                decrypted.Append((char)(encryptedText[i] ^ key[i % key.Length]));  // XOR decryption
+            }
+            return decrypted.ToString();
         }
     }
 }
