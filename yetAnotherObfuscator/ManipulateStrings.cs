@@ -2,9 +2,7 @@ using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using System;
 using System.Text;
-using System.Linq; // For ToList()
-using System.Reflection.Emit; // Only if you're using reflection.emit for dynamic type generation
-using System.Reflection;
+using System.Linq;
 
 namespace yetAnotherObfuscator
 {
@@ -32,7 +30,7 @@ namespace yetAnotherObfuscator
 
                         Console.WriteLine("[+] Encrypting all strings with encryption key: " + xorKey);
 
-                        foreach (TypeDef typedef in moduleDef.GetTypes().ToList()) // Use ToList() after adding the using directive
+                        foreach (TypeDef typedef in moduleDef.GetTypes().ToList())
                         {
                             if (!typedef.HasMethods) continue;
 
@@ -46,8 +44,12 @@ namespace yetAnotherObfuscator
                                     if (instr.OpCode == dnlib.DotNet.Emit.OpCodes.Ldstr)  // Use dnlib.OpCodes explicitly
                                     {
                                         int instrIndex = typeMethod.Body.Instructions.IndexOf(instr);
-                                        // Encrypt string literal
-                                        typeMethod.Body.Instructions[instrIndex].Operand = EncryptString(instr.Operand.ToString(), xorKey);
+                                        // Encrypt string literal and ensure it's Unicode escaped
+                                        string originalString = instr.Operand.ToString();
+                                        string encryptedString = EncryptString(originalString, xorKey);
+                                        // Ensure all strings passed to 0xb11a1 are Unicode-escaped
+                                        string unicodeEscaped = ConvertToUnicodeEscapeSequences(encryptedString);
+                                        typeMethod.Body.Instructions[instrIndex].Operand = unicodeEscaped;  // Use Unicode escape encoding
                                         typeMethod.Body.Instructions.Insert(instrIndex + 1, new Instruction(dnlib.DotNet.Emit.OpCodes.Call, method));  // Use dnlib.OpCodes explicitly
                                     }
                                 }
@@ -63,15 +65,34 @@ namespace yetAnotherObfuscator
             }
         }
 
-        // Encrypt strings using XOR with the key
+        // Encrypt strings using XOR with the key and convert to Unicode escape sequences
         public static string EncryptString(string plaintext, string key)
         {
-            StringBuilder encrypted = new StringBuilder();  // <-- StringBuilder is now accessible
+            StringBuilder encrypted = new StringBuilder();
             for (int i = 0; i < plaintext.Length; i++)
             {
                 encrypted.Append((char)(plaintext[i] ^ key[i % key.Length]));  // XOR encryption
             }
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes(encrypted.ToString()));  // Encode to Base64
+
+            // Convert the result to Unicode escape sequences (e.g., \u0048 for 'H')
+            StringBuilder unicodeString = new StringBuilder();
+            foreach (char c in encrypted.ToString())
+            {
+                unicodeString.AppendFormat("\\u{0:X4}", (int)c);  // \uXXXX format
+            }
+
+            return unicodeString.ToString();  // Return the string in Unicode escape sequence format
+        }
+
+        // Convert a string to Unicode escape sequences
+        public static string ConvertToUnicodeEscapeSequences(string input)
+        {
+            StringBuilder unicodeEncoded = new StringBuilder();
+            foreach (char c in input)
+            {
+                unicodeEncoded.AppendFormat("\\u{0:X4}", (int)c);
+            }
+            return unicodeEncoded.ToString();
         }
 
         // Generate a random string for XOR key
@@ -101,49 +122,36 @@ namespace yetAnotherObfuscator
             }
         }
 
-        // Create dynamic types at runtime using Reflection.Emit
-        public static void CreateDynamicType()
-        {
-            AssemblyBuilder assemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(
-                new AssemblyName("DynamicAssembly"), AssemblyBuilderAccess.Run);
-            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
-            TypeBuilder typeBuilder = moduleBuilder.DefineType("DynamicClass", System.Reflection.TypeAttributes.Public);  // Use System.Reflection.TypeAttributes explicitly
-
-            // Define a method
-            MethodBuilder methodBuilder = typeBuilder.DefineMethod("DynamicMethod", System.Reflection.MethodAttributes.Public, typeof(void), null);  // Use MethodAttributes from System.Reflection explicitly
-            ILGenerator ilGenerator = methodBuilder.GetILGenerator();
-            ilGenerator.Emit(System.Reflection.Emit.OpCodes.Ret);  // Use System.Reflection.Emit.OpCodes explicitly
-
-            // Create the type
-            Type dynamicType = typeBuilder.CreateType();
-
-            // Invoke the method
-            object dynamicObject = Activator.CreateInstance(dynamicType);
-            dynamicType.GetMethod("DynamicMethod").Invoke(dynamicObject, null);
-        }
-
-        // Obfuscate method parameters
-        public static void ObfuscateMethodParameters(string param)
-        {
-            string encodedParam = EncryptString(param, GetRandomString(16));  // Encrypt the parameter
-            Console.WriteLine("Obfuscated parameter: " + encodedParam);
-            // Decrypt the parameter when needed
-            string decryptedParam = DecryptString(encodedParam);
-            Console.WriteLine("Decrypted parameter: " + decryptedParam);
-        }
-
         // Decrypt strings
         public static string DecryptString(string ciphertext)
         {
-            byte[] decodedData = Convert.FromBase64String(ciphertext);
-            string encryptedText = Encoding.UTF8.GetString(decodedData);
+            // Convert Unicode escape sequence (e.g., \u0048) back to characters
             StringBuilder decrypted = new StringBuilder();
-            string key = GetRandomString(16);  // Use dynamic key for decryption
-            for (int i = 0; i < encryptedText.Length; i++)
+            for (int i = 0; i < ciphertext.Length; i++)
             {
-                decrypted.Append((char)(encryptedText[i] ^ key[i % key.Length]));  // XOR decryption
+                if (ciphertext[i] == '\\' && i + 5 < ciphertext.Length && ciphertext[i + 1] == 'u')
+                {
+                    // Extract the Unicode escape sequence
+                    string hexValue = ciphertext.Substring(i + 2, 4);
+                    int charCode = int.Parse(hexValue, System.Globalization.NumberStyles.HexNumber);
+                    decrypted.Append((char)charCode);
+                    i += 5;  // Skip over the \uXXXX sequence
+                }
+                else
+                {
+                    decrypted.Append(ciphertext[i]);
+                }
             }
-            return decrypted.ToString();
+
+            // Now decrypt with XOR (the same way it was encrypted)
+            string key = GetRandomString(16);  // Use a dynamic key for decryption
+            StringBuilder finalDecrypted = new StringBuilder();
+            for (int i = 0; i < decrypted.Length; i++)
+            {
+                finalDecrypted.Append((char)(decrypted[i] ^ key[i % key.Length]));  // XOR decryption
+            }
+
+            return finalDecrypted.ToString();
         }
     }
 }
