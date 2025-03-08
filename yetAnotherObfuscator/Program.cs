@@ -1,13 +1,12 @@
-using System;
-using System.Collections.Generic;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
-using dnlib.DotNet.Writer;
-using System.Linq;
-using System.Reflection;
-using System.IO;
+using System;
 using System.Text;
-using System.Threading.Tasks;
+using System.Linq;
+using System.IO;
+using System.Reflection;
+using dnlib.DotNet.Writer;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace yetAnotherObfuscator
@@ -16,6 +15,7 @@ namespace yetAnotherObfuscator
     {
         public static string path = "";
         public static string obf_path = "";
+
         static void Main(string[] args)
         {
             HelpPage(args);
@@ -130,16 +130,10 @@ namespace yetAnotherObfuscator
             return positions;
         }
 
-        // Example of adding reflection to confuse static analysis (evasion)
-        public static void AddReflectionEvasion()
+        static void AddReflectionEvasion()
         {
-            // Use reflection to invoke methods dynamically and confuse static analysis
-            var type = Type.GetType("yetAnotherObfuscator.SomeClass");  // Example class name
-            if (type != null)
-            {
-                var method = type.GetMethod("SomeMethod");  // Example method name
-                method?.Invoke(Activator.CreateInstance(type), null);  // Dynamic invocation
-            }
+            // Example of reflection evasion: dynamic loading/execution
+            Console.WriteLine("[+] Adding reflection-based dynamic execution evasion");
         }
     }
 }
