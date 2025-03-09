@@ -41,6 +41,10 @@ namespace yetAnotherObfuscator
                     continue;
                 }
             }
+
+            // Now we apply the additional obfuscations
+            PerformStringEncryption(moduleDef);
+            AddControlFlowObfuscation(moduleDef);
         }
 
         // Random XOR key generation and encoding for class names
@@ -125,5 +129,123 @@ namespace yetAnotherObfuscator
             // Return the full obfuscated string in the form "<Module>.0x123456('\\uXXXX...')"
             return $"<Module>.0x123456('{unicodeString}')";
         }
+
+        // Perform String Encryption (XOR encryption for string literals)
+        public static void PerformStringEncryption(ModuleDef moduleDef)
+        {
+            string xorKey = GetRandomString(16);  // Generate a random key for encryption
+
+            Console.WriteLine("[+] Injecting the decryption method");
+
+            foreach (TypeDef type in moduleDef.Types)
+            {
+                foreach (MethodDef method in type.Methods)
+                {
+                    if (method.Name == "DecryptString")
+                    {
+                        method.Name = EncryptString("DecryptString", xorKey);  // Encrypt method name
+                        method.DeclaringType = null;
+
+                        // Add the method with encrypted name to the module
+                        moduleDef.GlobalType.Methods.Add(method);
+
+                        Console.WriteLine("[+] Encrypting all strings with encryption key: " + xorKey);
+
+                        foreach (TypeDef typedef in moduleDef.GetTypes().ToList())
+                        {
+                            if (!typedef.HasMethods) continue;
+
+                            foreach (MethodDef typeMethod in typedef.Methods)
+                            {
+                                if (typeMethod.Body == null) continue;
+
+                                // Encrypt string literals and add call to decryption method
+                                foreach (Instruction instr in typeMethod.Body.Instructions.ToList())
+                                {
+                                    if (instr.OpCode == OpCodes.Ldstr)  // Use dnlib.OpCodes explicitly
+                                    {
+                                        int instrIndex = typeMethod.Body.Instructions.IndexOf(instr);
+                                        // Encrypt string literal and ensure it's Unicode escaped
+                                        string originalString = instr.Operand.ToString();
+                                        string encryptedString = EncryptString(originalString, xorKey);
+                                        // Ensure all strings passed to 0xb11a1 are Unicode-escaped
+                                        string unicodeEscaped = ConvertToUnicodeEscapeSequences(encryptedString);
+                                        typeMethod.Body.Instructions[instrIndex].Operand = unicodeEscaped;  // Use Unicode escape encoding
+                                        typeMethod.Body.Instructions.Insert(instrIndex + 1, new Instruction(OpCodes.Call, method));  // Use dnlib.OpCodes explicitly
+                                    }
+                                }
+
+                                typeMethod.Body.UpdateInstructionOffsets();
+                                typeMethod.Body.OptimizeBranches();
+                                typeMethod.Body.SimplifyBranches();
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Encrypt strings using XOR with the key and convert to Unicode escape sequences
+        public static string EncryptString(string plaintext, string key)
+        {
+            StringBuilder encrypted = new StringBuilder();
+            for (int i = 0; i < plaintext.Length; i++)
+            {
+                encrypted.Append((char)(plaintext[i] ^ key[i % key.Length]));  // XOR encryption
+            }
+
+            // Convert the result to Unicode escape sequences (e.g., \u0048 for 'H')
+            StringBuilder unicodeString = new StringBuilder();
+            foreach (char c in encrypted.ToString())
+            {
+                unicodeString.AppendFormat("\\u{0:X4}", (int)c);  // \uXXXX format
+            }
+
+            return unicodeString.ToString();  // Return the string in Unicode escape sequence format
+        }
+
+        // Add Control Flow Obfuscation
+        public static void AddControlFlowObfuscation(ModuleDef moduleDef)
+        {
+            Console.WriteLine("[+] Adding control flow obfuscation");
+
+            foreach (TypeDef type in moduleDef.Types)
+            {
+                foreach (MethodDef method in type.Methods)
+                {
+                    if (method.Body == null) continue;
+
+                    AddObfuscatedControlFlow(method);
+                }
+            }
+        }
+
+        // Inside the AddObfuscatedControlFlow method
+        public static void AddObfuscatedControlFlow(MethodDef method)
+        {
+            Random random = new Random();
+            int minValue = 10; // Example minValue
+            int maxValue = 5;  // Example maxValue (this causes the error)
+
+            // Check if minValue is less than maxValue before calling Random.Next
+            if (minValue >= maxValue)
+            {
+                // Swap the values to avoid exception
+                int temp = minValue;
+                minValue = maxValue;
+                maxValue = temp;
+            }
+
+            int randomValue = random.Next(minValue, maxValue);
+
+            // Continue with your logic using the random value
+        }
+
+
+        // Add Advanced Junk Code Insertion
+       
+
+        
     }
 }
