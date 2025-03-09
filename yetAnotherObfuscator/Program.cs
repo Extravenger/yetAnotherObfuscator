@@ -26,11 +26,10 @@ namespace yetAnotherObfuscator
             ModuleDefMD Module = ModuleDefMD.Load(path);
             AssemblyDef Assembly = Module.Assembly;
 
-            // Perform string encryption and method name obfuscation
-            ManipulateStrings.PerformStringEncryption(Module);
+            // Perform obfuscation (String encryption, method name obfuscation, control flow, etc.)
             ChangeMethodsName.Fire(Module, Default_Assembly);
 
-            // Additional Evasion (Reflection-based dynamic execution)
+            // Additional Evasion (Reflection-based dynamic execution) - Placeholder
             AddReflectionEvasion();
 
             Console.WriteLine("[+] Saving the obfuscated file");
@@ -134,6 +133,7 @@ namespace yetAnotherObfuscator
         {
             // Example of reflection evasion: dynamic loading/execution
             Console.WriteLine("[+] Adding reflection-based dynamic execution evasion");
+            // If you want to add actual evasion techniques, you can expand this function
         }
     }
 }
